@@ -19,3 +19,5 @@
 - `GameLocation.answerDialogueAction("Sleep_Yes", null)` triggers bed sleep, overnight shipping calculations, and persists the save to the next day.
 - Skipping blocking events: `Game1.CurrentEvent?.skipEvent()` and `Game1.exitActiveMenu()` unblocks player movement (`player.CanMove = true`).
 - In-engine loop plan execution achieves ~0.01s – 2.38s per multi-step plan, an over 50x–100x speedup compared to visual/keystroke automation.
+- `Game1.getFarm().shipItem(item, Game1.player)` deposits sellable inventory items directly into the farm shipping bin for overnight gold revenue.
+- In Stardew Valley 1.6, Game1.NewDay(0f) is a void static method that directly initiates the day completion, overnight shipping tally, and new day save sequence.
