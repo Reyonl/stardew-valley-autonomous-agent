@@ -1,0 +1,21 @@
+# Lessons Learned & Verified Facts
+
+- Game version is 1.6.15 (ConcernedApe, FileVersion 1.6.15.24354).
+- Game executable directory is `D:\Download\Stardew.Valley.v1.6.15.kuyhAa\Stardew Valley`.
+- SMAPI version is 4.5.2 (installed in game root with `StardewModdingAPI.exe` and `Mods/`).
+- .NET SDK 8.0.426 is installed in `C:\Users\ThinkPad\.dotnet` with .NET 6.0.36 runtime.
+- Game uses .NET 6/8 runtime architecture (coreclr.dll and modern .NET assemblies present).
+- Previous screenshot + DirectInput pipeline had an average action cost of 1.5s - 3.0s per step with blind timing vulnerability.
+- `AgentBridge.csproj` targets `net6.0` with `Pathoschild.Stardew.ModBuildConfig` 4.3.2.
+- `Pathoschild.Stardew.ModBuildConfig` automatically copies mod files into `D:\Download\Stardew.Valley.v1.6.15.kuyhAa\Stardew Valley\Mods\AgentBridge`.
+- SMAPI 4.5.2 successfully discovers and loads `AgentBridge` on game boot (`[AgentBridge] AgentBridge initialized successfully!`).
+- `HttpListener` binds successfully to `http://127.0.0.1:8765/` on Windows without requiring elevation.
+- `SaveGame.Load(string saveName)` successfully loads the save game programmatically from the title screen into `playingGameMode`.
+- `StateSnapshot.BuildSnapshot()` produces live telemetry matching the target JSON schema (`world_ready`, `time`, `player`, `ui`, `inventory`, `plan`).
+- `GameLocation.isTilePassable(new xTile.Dimensions.Location(x,y), Game1.viewport)` and `!GameLocation.isCollidingPosition(new Rectangle(x*64, y*64, 64, 64), Game1.viewport, Game1.player)` determines exact tile walkability.
+- `StardewValley.Pathfinding.PathFindController` automatically paths and moves the player along walkable tiles.
+- `GameLocation.warps` exposes live map exits and target destinations across buildings and world regions.
+- `HoeDirt.plant(seedItem.QualifiedItemId, player, false)` and `dirt.readyForHarvest()` / `dirt.performUseAction()` perform instant in-engine farming actions while properly spending seeds and energy.
+- `GameLocation.answerDialogueAction("Sleep_Yes", null)` triggers bed sleep, overnight shipping calculations, and persists the save to the next day.
+- Skipping blocking events: `Game1.CurrentEvent?.skipEvent()` and `Game1.exitActiveMenu()` unblocks player movement (`player.CanMove = true`).
+- In-engine loop plan execution achieves ~0.01s – 2.38s per multi-step plan, an over 50x–100x speedup compared to visual/keystroke automation.

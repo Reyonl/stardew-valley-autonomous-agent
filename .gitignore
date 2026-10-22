@@ -3,3 +3,6 @@ __pycache__/
 *.log
 scratch/
 .system_generated/
+AgentBridge/bin/
+AgentBridge/obj/
+logs/*.jsonl
