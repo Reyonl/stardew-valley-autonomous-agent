@@ -166,11 +166,29 @@ class AutonomousGrinder:
             ],
         )
         print(f"Sleep execution: {sleep_res.get('status')}")
-        time.sleep(3)
 
-        new_state = self.client.get_state()
-        new_t = new_state.get("time", {})
-        print(f"Advanced to Day {new_t.get('day')} of {new_t.get('season', '').title()}! Stamina fully restored.")
+        # Wait for the night transition and save writing to complete
+        initial_day = t["day"]
+        print(f"Waiting for night transition from Day {initial_day}...")
+        for _ in range(40):
+            time.sleep(1)
+            try:
+                s = self.client.get_state()
+                if not s.get("world_ready", False):
+                    continue
+                # Dismiss overnight menus if any (e.g. shipping tally, level up screen)
+                if s.get("ui", {}).get("menu") or s.get("ui", {}).get("dialogue"):
+                    self.client.execute("dismiss_night_menu", [{"skill": "close_menu"}])
+
+                current_day = s.get("time", {}).get("day")
+                if current_day != initial_day:
+                    new_t = s.get("time", {})
+                    print(f"Advanced to Day {new_t.get('day')} of {new_t.get('season', '').title()}! Stamina fully restored.")
+                    return True
+            except Exception:
+                pass
+
+        print("Warning: Day transition timed out or save still in progress.")
         return True
 
     def run_multi_day(self, days: int = 1):
