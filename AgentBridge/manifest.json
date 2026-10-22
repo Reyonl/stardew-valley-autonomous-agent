@@ -1,0 +1,9 @@
+{
+  "Name": "AgentBridge",
+  "Author": "Reyon",
+  "Version": "1.0.0",
+  "Description": "High-speed autonomous agent bridge for Stardew Valley 1.6",
+  "UniqueID": "Reyon.AgentBridge",
+  "EntryDll": "AgentBridge.dll",
+  "MinimumApiVersion": "4.0.0"
+}
