@@ -35,6 +35,12 @@ public class ModEntry : Mod
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
+        // 0. Ensure game never pauses when window is unfocused in background
+        if (Game1.options != null)
+        {
+            Game1.options.pauseWhenOutOfFocus = false;
+        }
+
         // 1. Drain command queue on main game thread
         if (_webServer != null)
         {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Reflection;
 using System.Text.Json;
 using Microsoft.Xna.Framework;
 using StardewModdingAPI;
@@ -48,6 +49,7 @@ public class PlanExecutor
     // Step execution state
     private bool _stepInitialized = false;
     private bool _isWarping = false;
+    private int _warpTicks = 0;
     private int _waitTicksRemaining = 0;
     private Point _lastTile = Point.Zero;
     private int _stuckTicks = 0;
@@ -201,6 +203,15 @@ public class PlanExecutor
             case "wait":
                 ExecuteWait(step);
                 break;
+            case "ship":
+                ExecuteShip(step);
+                break;
+            case "clear_dead":
+                ExecuteClearDead(step);
+                break;
+            case "buy_seeds":
+                ExecuteBuySeeds(step);
+                break;
             default:
                 FailStep("BAD_ARGS", $"Unknown skill: {step.Skill}");
                 break;
@@ -212,6 +223,7 @@ public class PlanExecutor
         _currentStepIndex++;
         _stepInitialized = false;
         _isWarping = false;
+        _warpTicks = 0;
         _stuckTicks = 0;
         if (Game1.player != null)
             Game1.player.controller = null;
@@ -226,6 +238,7 @@ public class PlanExecutor
         _lastResult.ElapsedS = Math.Round(_stopwatch.Elapsed.TotalSeconds, 2);
         _currentPlan = null;
         _isWarping = false;
+        _warpTicks = 0;
         if (Game1.player != null)
             Game1.player.controller = null;
         _monitor.Log($"[PlanExecutor] Plan failed at step {_lastResult.Step} ({errorCode}): {detail}", LogLevel.Warn);
@@ -245,6 +258,13 @@ public class PlanExecutor
         {
             if (_isWarping)
             {
+                _warpTicks++;
+                if (_warpTicks > 60)
+                {
+                    _isWarping = false;
+                    _warpTicks = 0;
+                    FailStep("WARP_TIMEOUT", $"Failed to warp from {currentLoc} to {targetLoc}");
+                }
                 return;
             }
 
@@ -281,6 +301,7 @@ public class PlanExecutor
             if (distToWarp <= 1)
             {
                 _isWarping = true;
+                _warpTicks = 0;
                 _monitor.Log($"[PlanExecutor] Warping from {currentLoc} to {warp.TargetName} at ({warp.TargetX}, {warp.TargetY})", LogLevel.Info);
                 Game1.warpFarmer(warp.TargetName, warp.TargetX, warp.TargetY, false);
                 return;
@@ -292,6 +313,7 @@ public class PlanExecutor
                 if (player.controller.pathToEndPoint == null)
                 {
                     _isWarping = true;
+                    _warpTicks = 0;
                     Game1.warpFarmer(warp.TargetName, warp.TargetX, warp.TargetY, false);
                 }
             }
@@ -601,17 +623,27 @@ public class PlanExecutor
 
     private void ExecuteSleep(PlanStep step)
     {
-        _monitor.Log("[PlanExecutor] Ending day via answerDialogueAction('Sleep_Yes')...", LogLevel.Info);
-        if (Game1.currentLocation != null)
+        _monitor.Log("[PlanExecutor] Ending day via player.isInBed + Game1.NewDay(0f)...", LogLevel.Info);
+        if (Game1.player != null)
         {
-            Game1.currentLocation.answerDialogueAction("Sleep_Yes", null);
+            Game1.player.isInBed.Value = true;
         }
+        Game1.NewDay(0f);
         AdvanceStep();
     }
 
     private void ExecuteCloseMenu(PlanStep step)
     {
-        if (Game1.activeClickableMenu != null)
+        if (Game1.activeClickableMenu is ShippingMenu sm)
+        {
+            try
+            {
+                var m = typeof(ShippingMenu).GetMethod("okClicked", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+                m?.Invoke(sm, null);
+            }
+            catch { }
+        }
+        else if (Game1.activeClickableMenu != null)
         {
             try { Game1.exitActiveMenu(); } catch { }
         }
@@ -643,5 +675,142 @@ public class PlanExecutor
         {
             AdvanceStep();
         }
+    }
+
+    private void ExecuteShip(PlanStep step)
+    {
+        var player = Game1.player;
+        var farm = Game1.getFarm();
+        if (farm == null)
+        {
+            FailStep("NO_FARM", "Farm location not found");
+            return;
+        }
+
+        List<string> itemNames = new List<string>();
+        if (step.Args != null && step.Args.TryGetValue("items", out var itemsElem) && itemsElem.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var el in itemsElem.EnumerateArray())
+            {
+                var s = el.GetString();
+                if (!string.IsNullOrEmpty(s)) itemNames.Add(s.ToLowerInvariant());
+            }
+        }
+
+        for (int i = 0; i < player.Items.Count; i++)
+        {
+            var item = player.Items[i];
+            if (item == null) continue;
+            if (item is Tool) continue;
+
+            bool shouldShip = false;
+            if (itemNames.Count > 0)
+            {
+                shouldShip = itemNames.Contains(item.Name.ToLowerInvariant());
+            }
+            else
+            {
+                if (item.Category == StardewValley.Object.FruitsCategory ||
+                    item.Category == StardewValley.Object.VegetableCategory ||
+                    item.Category == StardewValley.Object.GreensCategory ||
+                    item.Category == StardewValley.Object.FishCategory ||
+                    item.Name.Equals("Parsnip", StringComparison.OrdinalIgnoreCase))
+                {
+                    shouldShip = true;
+                }
+            }
+
+            if (shouldShip)
+            {
+                _monitor.Log($"[PlanExecutor] Shipping {item.Stack}x {item.Name}", LogLevel.Info);
+                farm.shipItem(item, player);
+                player.Items[i] = null;
+            }
+        }
+
+        AdvanceStep();
+    }
+
+    private void ExecuteClearDead(PlanStep step)
+    {
+        var player = Game1.player;
+        if (player.currentLocation == null)
+        {
+            AdvanceStep();
+            return;
+        }
+
+        var tiles = ParseTiles(step);
+        if (tiles.Count == 0)
+        {
+            foreach (var pair in player.currentLocation.terrainFeatures.Pairs)
+            {
+                if (pair.Value is HoeDirt dirt && dirt.crop != null && dirt.crop.dead.Value)
+                {
+                    dirt.crop = null;
+                }
+            }
+        }
+        else
+        {
+            foreach (var t in tiles)
+            {
+                Vector2 tileVec = new Vector2(t.X, t.Y);
+                if (player.currentLocation.terrainFeatures.TryGetValue(tileVec, out var tf) && tf is HoeDirt dirt)
+                {
+                    if (dirt.crop != null && dirt.crop.dead.Value)
+                    {
+                        dirt.crop = null;
+                    }
+                }
+            }
+        }
+
+        AdvanceStep();
+    }
+
+    private void ExecuteBuySeeds(PlanStep step)
+    {
+        var player = Game1.player;
+        int count = step.Args != null && step.Args.TryGetValue("count", out var cElem) ? cElem.GetInt32() : 15;
+        string season = Game1.currentSeason?.ToLowerInvariant() ?? "spring";
+
+        string seedId = "(O)472"; // Parsnip
+        int price = 20;
+
+        if (season == "spring")
+        {
+            seedId = "(O)474"; // Potato seeds
+            price = 50;
+        }
+        else if (season == "summer")
+        {
+            seedId = "(O)481"; // Blueberry seeds
+            price = 80;
+        }
+        else if (season == "fall")
+        {
+            seedId = "(O)490"; // Pumpkin seeds
+            price = 100;
+        }
+        else if (season == "winter")
+        {
+            AdvanceStep();
+            return;
+        }
+
+        int maxAffordable = player.Money / price;
+        int toBuy = Math.Min(count, maxAffordable);
+
+        if (toBuy > 0)
+        {
+            int totalCost = toBuy * price;
+            player.Money -= totalCost;
+            Item seedItem = ItemRegistry.Create(seedId, toBuy);
+            player.addItemToInventory(seedItem);
+            _monitor.Log($"[PlanExecutor] Purchased {toBuy}x {seedItem.DisplayName} for {totalCost}g", LogLevel.Info);
+        }
+
+        AdvanceStep();
     }
 }
